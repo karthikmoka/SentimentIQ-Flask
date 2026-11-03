@@ -1,0 +1,1 @@
+"""SentimentIQ Flask config package."""

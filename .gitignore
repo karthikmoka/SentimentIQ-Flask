@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Model files (large binaries - optional to include)
+# models/sentiment_model.pkl
+
+# Uploads (user data)
+uploads/
+results/analytics.json
+results/*.csv
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pytest cache
+.pytest_cache/
+
+# Distribution
+dist/
+build/
+*.egg-info/

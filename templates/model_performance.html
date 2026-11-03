@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Model Performance{% endblock %}
+
+{% block content %}
+<section class="container-xl py-5">
+
+  <div class="siq-page-header mb-5">
+    <h1 class="siq-page-title"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Model Performance</h1>
+    <p class="text-muted">Evaluation results for the TF-IDF + Logistic Regression model trained on the Stanford Sentiment Treebank (SST-5) dataset.</p>
+  </div>
+
+  {% if not metrics %}
+  <div class="alert alert-info d-flex gap-2 align-items-center">
+    <i class="bi bi-info-circle-fill fs-5"></i>
+    <span>No evaluation data found. Run <code>python models/train_model.py</code> first.</span>
+  </div>
+  {% else %}
+
+  <!-- ── Key metric cards ─────────────────────────────────────────────────── -->
+  <div class="row g-3 mb-5">
+    <div class="col-6 col-lg-3">
+      <div class="siq-metric-card border-primary">
+        <div class="siq-metric-val text-primary">{{ "%.2f"|format(metrics.accuracy * 100) }}%</div>
+        <div class="siq-metric-lbl">Test Accuracy</div>
+        <i class="bi bi-bullseye siq-metric-icon text-primary"></i>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="siq-metric-card border-success">
+        <div class="siq-metric-val text-success">{{ "%.4f"|format(metrics.macro_f1) }}</div>
+        <div class="siq-metric-lbl">Macro F1</div>
+        <i class="bi bi-graph-up siq-metric-icon text-success"></i>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="siq-metric-card border-info">
+        <div class="siq-metric-val text-info">{{ "%.4f"|format(metrics.cv_mean_f1) }}</div>
+        <div class="siq-metric-lbl">CV F1 (3-fold)</div>
+        <i class="bi bi-repeat siq-metric-icon text-info"></i>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="siq-metric-card border-warning">
+        <div class="siq-metric-val text-warning">{{ "{:,}".format(metrics.vocab_size) }}</div>
+        <div class="siq-metric-lbl">TF-IDF Features</div>
+        <i class="bi bi-grid-3x3-gap siq-metric-icon text-warning"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Per-class metrics ────────────────────────────────────────────────── -->
+  <div class="row g-4 mb-5">
+    <div class="col-lg-6">
+      <div class="siq-card h-100">
+        <div class="siq-card-header">
+          <i class="bi bi-list-check me-2 text-primary"></i>Per-Class Performance
+        </div>
+        <div class="siq-card-body">
+          {% for label_name, cls_metrics in metrics.per_class.items() %}
+          {% set color = '#16A34A' if label_name == 'Positive' else ('#DC2626' if label_name == 'Negative' else '#EAB308') %}
+          <div class="siq-cls-row mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="fw-600" style="color:{{ color }}">
+                {% if label_name == 'Positive' %}<i class="bi bi-emoji-smile-fill me-1"></i>
+                {% elif label_name == 'Negative' %}<i class="bi bi-emoji-frown-fill me-1"></i>
+                {% else %}<i class="bi bi-emoji-neutral-fill me-1"></i>{% endif %}
+                {{ label_name }}
+              </span>
+              <small class="text-muted">F1: {{ "%.4f"|format(cls_metrics.f1) }}</small>
+            </div>
+            <div class="row g-2">
+              <div class="col-4">
+                <small class="text-muted d-block">Precision</small>
+                <div class="siq-mini-bar-wrap">
+                  <div class="siq-mini-bar" style="width:{{ (cls_metrics.precision * 100)|round|int }}%; background:{{ color }};"></div>
+                </div>
+                <small>{{ "%.1f"|format(cls_metrics.precision * 100) }}%</small>
+              </div>
+              <div class="col-4">
+                <small class="text-muted d-block">Recall</small>
+                <div class="siq-mini-bar-wrap">
+                  <div class="siq-mini-bar" style="width:{{ (cls_metrics.recall * 100)|round|int }}%; background:{{ color }};"></div>
+                </div>
+                <small>{{ "%.1f"|format(cls_metrics.recall * 100) }}%</small>
+              </div>
+              <div class="col-4">
+                <small class="text-muted d-block">F1</small>
+                <div class="siq-mini-bar-wrap">
+                  <div class="siq-mini-bar" style="width:{{ (cls_metrics.f1 * 100)|round|int }}%; background:{{ color }};"></div>
+                </div>
+                <small>{{ "%.1f"|format(cls_metrics.f1 * 100) }}%</small>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Confusion Matrix -->
+    <div class="col-lg-6">
+      <div class="siq-card h-100">
+        <div class="siq-card-header">
+          <i class="bi bi-grid-fill me-2 text-primary"></i>Confusion Matrix
+        </div>
+        <div class="siq-card-body d-flex flex-column justify-content-center">
+          {% if metrics.confusion_matrix %}
+          {% set cm = metrics.confusion_matrix %}
+          {% set labels = metrics.label_order %}
+          {% set cm_max = namespace(val=0) %}
+          {% for row in cm %}{% for v in row %}{% if v > cm_max.val %}{% set cm_max.val = v %}{% endif %}{% endfor %}{% endfor %}
+          <table class="table siq-cm-table text-center">
+            <thead>
+              <tr>
+                <th class="text-muted small" colspan="2" rowspan="2"></th>
+                <th class="text-center" colspan="{{ labels|length }}">Predicted</th>
+              </tr>
+              <tr>
+                {% for l in labels %}<th class="small">{{ l[:3] }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for i in range(labels|length) %}
+              <tr>
+                {% if i == 0 %}<th rowspan="{{ labels|length }}" class="siq-cm-actual">Actual</th>{% endif %}
+                <th class="small">{{ labels[i][:3] }}</th>
+                {% for j in range(labels|length) %}
+                {% set intensity = ((cm[i][j] / cm_max.val) * 0.8) if cm_max.val > 0 else 0 %}
+                <td class="siq-cm-cell {% if i == j %}siq-cm-diag{% endif %}"
+                    style="background: rgba(37,99,235,{{ intensity|round(2) }});">
+                  {{ cm[i][j] }}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted text-center">No confusion matrix data.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Per-class F1 bar chart ───────────────────────────────────────────── -->
+  <div class="row g-4 mb-5">
+    <div class="col-lg-7">
+      <div class="siq-card">
+        <div class="siq-card-header">
+          <i class="bi bi-bar-chart me-2 text-primary"></i>Precision / Recall / F1 by Class
+        </div>
+        <div class="siq-card-body"><canvas id="classChart" height="180"></canvas></div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="siq-card h-100">
+        <div class="siq-card-header"><i class="bi bi-info-circle me-2 text-primary"></i>Model Info</div>
+        <div class="siq-card-body">
+          <ul class="list-unstyled siq-info-list">
+            <li><span>Model</span><strong>{{ metrics.model }}</strong></li>
+            <li><span>Training samples</span><strong>{{ "{:,}".format(metrics.n_train) }}</strong></li>
+            <li><span>Test samples</span><strong>{{ "{:,}".format(metrics.n_test) }}</strong></li>
+            <li><span>TF-IDF features</span><strong>{{ "{:,}".format(metrics.vocab_size) }}</strong></li>
+            <li><span>Training time</span><strong>{{ metrics.training_time }}s</strong></li>
+            <li><span>CV F1 (mean ± std)</span><strong>{{ "%.4f"|format(metrics.cv_mean_f1) }} ± {{ "%.4f"|format(metrics.cv_std_f1) }}</strong></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Dataset info ─────────────────────────────────────────────────────── -->
+  <div class="siq-card mb-4">
+    <div class="siq-card-header"><i class="bi bi-database me-2 text-primary"></i>Dataset Information</div>
+    <div class="siq-card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <h6 class="fw-700 mb-2">Stanford Sentiment Treebank (SST-5)</h6>
+          <p class="small text-muted mb-2">
+            Originally a five-class dataset (very negative → very positive) mapped to three classes:
+          </p>
+          <ul class="small text-muted mb-0">
+            <li><strong>Negative</strong>: SST labels 0 (very negative) + 1 (somewhat negative)</li>
+            <li><strong>Neutral</strong>: SST label 2 (neutral)</li>
+            <li><strong>Positive</strong>: SST labels 3 (somewhat positive) + 4 (very positive)</li>
+          </ul>
+        </div>
+        <div class="col-md-6">
+          <h6 class="fw-700 mb-2">Split Sizes</h6>
+          <ul class="small text-muted mb-0">
+            <li>Training set: {{ "{:,}".format(metrics.n_train) }} examples</li>
+            <li>Test set: {{ "{:,}".format(metrics.n_test) }} examples</li>
+            <li>Source: Hugging Face <code>SetFit/sst5</code></li>
+            <li>License: Research use</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{% if metrics and metrics.per_class %}
+<script>
+const perClass = {{ metrics.per_class | tojson }};
+const labelOrder = {{ metrics.label_order | tojson }};
+initPerformancePage(perClass, labelOrder);
+</script>
+{% endif %}
+{% endblock %}

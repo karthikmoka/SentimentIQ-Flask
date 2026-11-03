@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- ── Hero ──────────────────────────────────────────────────────────────── -->
+<section class="siq-hero py-5">
+  <div class="container-xl">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-7">
+        <span class="badge siq-badge-ai mb-3"><i class="bi bi-stars me-1"></i>AI-Powered NLP</span>
+        <h1 class="siq-hero-title mb-3">
+          Sentiment<span class="siq-brand-accent">IQ</span>
+        </h1>
+        <p class="siq-hero-sub mb-4">
+          Intelligent movie-review sentiment analysis powered by TF-IDF and Logistic Regression.
+          Classify reviews as <span class="text-success fw-600">Positive</span>,
+          <span class="text-danger fw-600">Negative</span>, or
+          <span class="text-warning fw-600">Neutral</span> with real ML confidence scores.
+        </p>
+        {% if not model_ready %}
+        <div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
+          <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+          <span>Model not yet trained. Run <code>python models/train_model.py</code> first.</span>
+        </div>
+        {% endif %}
+        <div class="d-flex flex-wrap gap-3">
+          <a href="{{ url_for('analyze') }}" class="btn siq-btn-primary btn-lg px-4">
+            <i class="bi bi-search me-2"></i>Analyze Text
+          </a>
+          <a href="{{ url_for('batch') }}" class="btn siq-btn-outline btn-lg px-4">
+            <i class="bi bi-table me-2"></i>Batch Upload
+          </a>
+        </div>
+      </div>
+      <div class="col-lg-5 d-none d-lg-flex justify-content-center">
+        <div class="siq-hero-visual">
+          <div class="siq-float-card siq-pos"><i class="bi bi-emoji-smile-fill"></i> Positive</div>
+          <div class="siq-float-card siq-neg"><i class="bi bi-emoji-frown-fill"></i> Negative</div>
+          <div class="siq-float-card siq-neu"><i class="bi bi-emoji-neutral-fill"></i> Neutral</div>
+          <div class="siq-center-icon"><i class="bi bi-cpu-fill"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Stats row ──────────────────────────────────────────────────────────── -->
+<section class="container-xl mt-n3 mb-4">
+  <div class="row g-3">
+    <!-- Total -->
+    <div class="col-6 col-lg-3">
+      <div class="siq-stat-card h-100">
+        <div class="siq-stat-icon bg-primary-soft"><i class="bi bi-activity text-primary"></i></div>
+        <div class="siq-stat-val" id="stat-total">{{ analytics.total_analyzed }}</div>
+        <div class="siq-stat-lbl">Reviews Analyzed</div>
+      </div>
+    </div>
+    <!-- Positive -->
+    <div class="col-6 col-lg-3">
+      <div class="siq-stat-card h-100">
+        <div class="siq-stat-icon bg-success-soft"><i class="bi bi-emoji-smile-fill text-success"></i></div>
+        <div class="siq-stat-val text-success" id="stat-pos">{{ analytics.counts.Positive }}</div>
+        <div class="siq-stat-lbl">Positive</div>
+      </div>
+    </div>
+    <!-- Negative -->
+    <div class="col-6 col-lg-3">
+      <div class="siq-stat-card h-100">
+        <div class="siq-stat-icon bg-danger-soft"><i class="bi bi-emoji-frown-fill text-danger"></i></div>
+        <div class="siq-stat-val text-danger" id="stat-neg">{{ analytics.counts.Negative }}</div>
+        <div class="siq-stat-lbl">Negative</div>
+      </div>
+    </div>
+    <!-- Neutral -->
+    <div class="col-6 col-lg-3">
+      <div class="siq-stat-card h-100">
+        <div class="siq-stat-icon bg-warning-soft"><i class="bi bi-emoji-neutral-fill text-warning"></i></div>
+        <div class="siq-stat-val text-warning" id="stat-neu">{{ analytics.counts.Neutral }}</div>
+        <div class="siq-stat-lbl">Neutral</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Sentiment Cards ─────────────────────────────────────────────────────── -->
+<section class="container-xl mb-5">
+  <h2 class="siq-section-title mb-4"><i class="bi bi-stars me-2"></i>Sentiment Categories</h2>
+  <div class="row g-4">
+    <div class="col-md-4">
+      <div class="siq-cat-card siq-cat-pos h-100">
+        <div class="siq-cat-icon"><i class="bi bi-emoji-smile-fill"></i></div>
+        <h3 class="siq-cat-title">Positive</h3>
+        <p class="siq-cat-desc">Reviews expressing satisfaction, praise, enjoyment, or enthusiasm. High star ratings, glowing language, and strong recommendation signals.</p>
+        <div class="siq-cat-examples">
+          <span class="siq-example-tag">"Brilliant film"</span>
+          <span class="siq-example-tag">"Loved every moment"</span>
+          <span class="siq-example-tag">"Must watch"</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="siq-cat-card siq-cat-neg h-100">
+        <div class="siq-cat-icon"><i class="bi bi-emoji-frown-fill"></i></div>
+        <h3 class="siq-cat-title">Negative</h3>
+        <p class="siq-cat-desc">Reviews conveying disappointment, frustration, or criticism. Poor experiences, wasted time, and strong dissatisfaction.</p>
+        <div class="siq-cat-examples">
+          <span class="siq-example-tag">"Terrible acting"</span>
+          <span class="siq-example-tag">"Waste of time"</span>
+          <span class="siq-example-tag">"Avoid this"</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="siq-cat-card siq-cat-neu h-100">
+        <div class="siq-cat-icon"><i class="bi bi-emoji-neutral-fill"></i></div>
+        <h3 class="siq-cat-title">Neutral</h3>
+        <p class="siq-cat-desc">Mixed opinions, balanced assessments, or factual descriptions without clear positive or negative bias.</p>
+        <div class="siq-cat-examples">
+          <span class="siq-example-tag">"Decent enough"</span>
+          <span class="siq-example-tag">"Average film"</span>
+          <span class="siq-example-tag">"Some good parts"</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Charts + Recent Reviews ────────────────────────────────────────────── -->
+<section class="container-xl mb-5">
+  <div class="row g-4">
+    <!-- Pie Chart -->
+    <div class="col-lg-5">
+      <div class="siq-card h-100">
+        <div class="siq-card-header">
+          <i class="bi bi-pie-chart-fill me-2 text-primary"></i>Sentiment Distribution
+        </div>
+        <div class="siq-card-body d-flex justify-content-center align-items-center" style="min-height:280px;">
+          <canvas id="pieChart" width="280" height="280"></canvas>
+        </div>
+      </div>
+    </div>
+    <!-- Bar Chart -->
+    <div class="col-lg-7">
+      <div class="siq-card h-100">
+        <div class="siq-card-header">
+          <i class="bi bi-bar-chart-fill me-2 text-primary"></i>Analysis Count by Category
+        </div>
+        <div class="siq-card-body" style="min-height:280px;">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Recent Reviews Table ────────────────────────────────────────────────── -->
+<section class="container-xl mb-5">
+  <div class="siq-card">
+    <div class="siq-card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-clock-history me-2 text-primary"></i>Recent Analyses</span>
+      <small class="text-muted">Last {{ analytics.recent | length }} reviews</small>
+    </div>
+    <div class="siq-card-body p-0">
+      {% if analytics.recent %}
+      <div class="table-responsive">
+        <table class="table siq-table mb-0">
+          <thead>
+            <tr>
+              <th>Review Text</th>
+              <th>Sentiment</th>
+              <th>Confidence</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in analytics.recent %}
+            <tr>
+              <td class="siq-text-cell">{{ r.text[:90] }}{% if r.text|length > 90 %}…{% endif %}</td>
+              <td>
+                {% if r.sentiment == 'Positive' %}
+                  <span class="siq-badge-pos"><i class="bi bi-emoji-smile-fill me-1"></i>Positive</span>
+                {% elif r.sentiment == 'Negative' %}
+                  <span class="siq-badge-neg"><i class="bi bi-emoji-frown-fill me-1"></i>Negative</span>
+                {% else %}
+                  <span class="siq-badge-neu"><i class="bi bi-emoji-neutral-fill me-1"></i>Neutral</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="siq-conf-bar-wrap">
+                  <div class="siq-conf-bar {% if r.sentiment == 'Positive' %}bg-success{% elif r.sentiment == 'Negative' %}bg-danger{% else %}bg-warning{% endif %}"
+                       style="width: {{ (r.confidence * 100)|round|int }}%"></div>
+                </div>
+                <small class="text-muted">{{ (r.confidence * 100)|round(1) }}%</small>
+              </td>
+              <td><small class="text-muted">{{ r.timestamp[:16].replace('T',' ') }}</small></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center py-5 text-muted">
+        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+        No analyses yet. <a href="{{ url_for('analyze') }}">Analyze your first review →</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const analytics = {{ analytics | tojson }};
+initDashboardCharts(analytics);
+</script>
+{% endblock %}
