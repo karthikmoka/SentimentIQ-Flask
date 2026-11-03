@@ -16,19 +16,13 @@ sys.path.insert(0, _ROOT)
 
 from config.config import LABEL_NAMES
 
-# On Vercel/read-only fs, store analytics in /tmp
-import tempfile as _tempfile
-_DEFAULT_ANALYTICS = os.path.join(_tempfile.gettempdir(), "siq_analytics.json")
-ANALYTICS_PATH = os.environ.get("ANALYTICS_OVERRIDE", ANALYTICS_PATH) if 'ANALYTICS_PATH' in dir() else _DEFAULT_ANALYTICS
-try:
-    from config.config import ANALYTICS_PATH as _AP
-    ANALYTICS_PATH = os.environ.get("ANALYTICS_OVERRIDE", _AP)
-except Exception:
-    pass
-
 log      = logging.getLogger(__name__)
 _lock    = threading.Lock()
-MAX_RECENT = 20   # keep last N reviews in memory
+MAX_RECENT = 20
+
+# Use /tmp on Vercel (read-only fs), fallback to results/ locally
+from config.config import ANALYTICS_PATH as _DEFAULT_ANALYTICS_PATH
+ANALYTICS_PATH = os.environ.get("ANALYTICS_OVERRIDE", _DEFAULT_ANALYTICS_PATH)
 
 
 def _empty_store() -> dict:
@@ -56,10 +50,6 @@ def _save(store: dict):
 
 
 def record_prediction(result: dict, source: str = "single"):
-    """
-    Persist a prediction result to the analytics store.
-    result must contain at least: sentiment, confidence, original_text
-    """
     with _lock:
         store = _load()
         sentiment = result.get("sentiment", "Unknown")
@@ -77,8 +67,7 @@ def record_prediction(result: dict, source: str = "single"):
         _save(store)
 
 
-def record_batch(results: list[dict]):
-    """Persist a batch of prediction results."""
+def record_batch(results: list):
     with _lock:
         store = _load()
         for result in results:

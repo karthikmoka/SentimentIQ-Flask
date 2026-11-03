@@ -1,13 +1,12 @@
 """
 SentimentIQ Flask — Main Application
-Run: python app.py
-Access: http://127.0.0.1:5000
+Run locally: python app.py  →  http://127.0.0.1:5000
+Vercel:      entry point is api/index.py which imports `app` from here
 """
 
 import os
 import sys
 import io
-import csv
 import json
 import uuid
 import logging
@@ -24,53 +23,40 @@ from flask import (
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 
-# ── On Vercel / read-only filesystems use /tmp ────────────────────────────────
-_IS_READONLY_FS = not os.access(_ROOT, os.W_OK)
-if _IS_READONLY_FS:
-    import tempfile
-    _TMP = tempfile.gettempdir()
-    os.environ.setdefault("UPLOAD_FOLDER_OVERRIDE",  os.path.join(_TMP, "siq_uploads"))
-    os.environ.setdefault("RESULTS_FOLDER_OVERRIDE", os.path.join(_TMP, "siq_results"))
-    os.environ.setdefault("ANALYTICS_OVERRIDE",      os.path.join(_TMP, "siq_analytics.json"))
-
-from config.config  import (
-    SECRET_KEY, DEBUG, LABEL_NAMES,
+from config.config import (
+    SECRET_KEY, DEBUG, MAX_UPLOAD_MB, ALLOWED_EXTENSIONS, LABEL_NAMES,
 )
-from config.config import MAX_UPLOAD_MB, ALLOWED_EXTENSIONS
 
-# Override paths if on read-only filesystem (e.g. Vercel)
-import tempfile
-_TMP = tempfile.gettempdir()
+# ── Writable paths (use /tmp overrides on Vercel) ─────────────────────────────
 UPLOAD_FOLDER  = os.environ.get("UPLOAD_FOLDER_OVERRIDE",  os.path.join(_ROOT, "uploads"))
 RESULTS_FOLDER = os.environ.get("RESULTS_FOLDER_OVERRIDE", os.path.join(_ROOT, "results"))
-from models.predict      import predict, predict_batch
-from utils.evaluation    import load_evaluation, format_metrics
-from utils.analytics     import record_prediction, record_batch, get_analytics
+
+from models.predict   import predict, predict_batch
+from utils.evaluation import load_evaluation, format_metrics
+from utils.analytics  import record_prediction, record_batch, get_analytics
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
-app = Flask(__name__)
-app.secret_key          = SECRET_KEY
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
-app.config["UPLOAD_FOLDER"]      = UPLOAD_FOLDER
-app.config["RESULTS_FOLDER"]     = RESULTS_FOLDER
+app = Flask(__name__, template_folder=os.path.join(_ROOT, "templates"),
+            static_folder=os.path.join(_ROOT, "static"))
+app.secret_key                    = SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"]  = MAX_UPLOAD_MB * 1024 * 1024
+app.config["UPLOAD_FOLDER"]       = UPLOAD_FOLDER
+app.config["RESULTS_FOLDER"]      = RESULTS_FOLDER
 
 os.makedirs(UPLOAD_FOLDER,  exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 def _model_ready() -> bool:
     from config.config import MODEL_PATH
     return os.path.exists(MODEL_PATH)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Routes
@@ -80,22 +66,15 @@ def _model_ready() -> bool:
 def index():
     analytics = get_analytics()
     model_ready = _model_ready()
-    return render_template("index.html",
-                           analytics=analytics,
-                           model_ready=model_ready)
-
+    return render_template("index.html", analytics=analytics, model_ready=model_ready)
 
 @app.route("/analyze")
 def analyze():
-    model_ready = _model_ready()
-    return render_template("analyze.html", model_ready=model_ready)
-
+    return render_template("analyze.html", model_ready=_model_ready())
 
 @app.route("/batch")
 def batch():
-    model_ready = _model_ready()
-    return render_template("batch_analysis.html", model_ready=model_ready)
-
+    return render_template("batch_analysis.html", model_ready=_model_ready())
 
 @app.route("/performance")
 def performance():
@@ -103,20 +82,15 @@ def performance():
     metrics = format_metrics(raw)
     return render_template("model_performance.html", metrics=metrics, raw=raw)
 
-
 # ── API: single prediction ─────────────────────────────────────────────────────
-
 @app.route("/predict", methods=["POST"])
 def api_predict():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
-
     if not text:
         return jsonify({"error": "No text provided."}), 400
-
     if not _model_ready():
-        return jsonify({"error": "Model not trained yet. Please run train_model.py first."}), 503
-
+        return jsonify({"error": "Model not trained yet."}), 503
     try:
         result = predict(text)
         record_prediction(result, source="single")
@@ -125,118 +99,78 @@ def api_predict():
         log.exception("Prediction error")
         return jsonify({"error": str(exc)}), 500
 
-
 # ── API: batch prediction ──────────────────────────────────────────────────────
-
 @app.route("/batch-predict", methods=["POST"])
 def api_batch_predict():
     if not _model_ready():
         return jsonify({"error": "Model not trained yet."}), 503
-
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded."}), 400
-
     file = request.files["file"]
     if not file or not _allowed_file(file.filename):
         return jsonify({"error": "Please upload a valid .csv file."}), 400
-
     text_col = request.form.get("text_column", "text").strip()
-
     try:
-        content  = file.read().decode("utf-8", errors="replace")
-        df       = pd.read_csv(io.StringIO(content))
+        content = file.read().decode("utf-8", errors="replace")
+        df      = pd.read_csv(io.StringIO(content))
     except Exception as exc:
         return jsonify({"error": f"Could not parse CSV: {exc}"}), 400
-
     if text_col not in df.columns:
-        available = df.columns.tolist()
-        return jsonify({
-            "error": f"Column '{text_col}' not found. Available: {available}",
-            "columns": available,
-        }), 400
-
+        return jsonify({"error": f"Column '{text_col}' not found.", "columns": df.columns.tolist()}), 400
     texts = df[text_col].fillna("").astype(str).tolist()
     if not texts:
         return jsonify({"error": "CSV has no rows."}), 400
-
     try:
-        results  = predict_batch(texts)
+        results = predict_batch(texts)
         record_batch(results)
     except Exception as exc:
         log.exception("Batch prediction error")
         return jsonify({"error": str(exc)}), 500
-
-    # Build result dataframe
     df["predicted_sentiment"] = [r["sentiment"]  for r in results]
     df["confidence"]          = [r["confidence"] for r in results]
     df["neg_prob"]            = [r["probabilities"].get("Negative", 0) for r in results]
     df["neu_prob"]            = [r["probabilities"].get("Neutral",  0) for r in results]
     df["pos_prob"]            = [r["probabilities"].get("Positive", 0) for r in results]
-
-    # Save CSV to results folder
     out_name = f"results_{uuid.uuid4().hex[:8]}.csv"
     out_path = os.path.join(RESULTS_FOLDER, out_name)
     df.to_csv(out_path, index=False)
-
-    # Summary counts
-    counts = df["predicted_sentiment"].value_counts().to_dict()
-
+    counts  = df["predicted_sentiment"].value_counts().to_dict()
     preview = [
-        {
-            "text":      row[text_col][:120],
-            "sentiment": row["predicted_sentiment"],
-            "confidence": f'{row["confidence"]*100:.1f}%',
-        }
+        {"text": row[text_col][:120], "sentiment": row["predicted_sentiment"],
+         "confidence": f'{row["confidence"]*100:.1f}%'}
         for _, row in df.head(50).iterrows()
     ]
+    return jsonify({"total": len(results), "counts": counts, "preview": preview, "download_file": out_name})
 
-    return jsonify({
-        "total":          len(results),
-        "counts":         counts,
-        "preview":        preview,
-        "download_file":  out_name,
-    })
-
-
-# ── API: analytics data ────────────────────────────────────────────────────────
-
+# ── API: analytics ─────────────────────────────────────────────────────────────
 @app.route("/analytics")
 def api_analytics():
     return jsonify(get_analytics())
 
-
 # ── Download result CSV ────────────────────────────────────────────────────────
-
 @app.route("/download-results/<filename>")
 def download_results(filename):
-    # Security: only allow filenames from results folder
     safe = os.path.basename(filename)
     path = os.path.join(RESULTS_FOLDER, safe)
     if not os.path.exists(path):
         abort(404)
     return send_from_directory(RESULTS_FOLDER, safe, as_attachment=True)
 
-
 # ── Error handlers ─────────────────────────────────────────────────────────────
-
 @app.errorhandler(413)
 def too_large(e):
-    return jsonify({"error": f"File too large. Maximum size is {MAX_UPLOAD_MB} MB."}), 413
-
+    return jsonify({"error": f"File too large. Maximum {MAX_UPLOAD_MB} MB."}), 413
 
 @app.errorhandler(404)
 def not_found(e):
     return render_template("404.html"), 404
 
-
 @app.errorhandler(500)
 def server_error(e):
     return jsonify({"error": "Internal server error."}), 500
 
-
-# ── Entry point ────────────────────────────────────────────────────────────────
-
+# ── Local dev entry point ──────────────────────────────────────────────────────
 if __name__ == "__main__":
     if not _model_ready():
-        log.warning("⚠️  No trained model found. Run: python models/train_model.py")
-    app.run(host="127.0.0.1", port=5000, debug=DEBUG)
+        log.warning("No trained model found. Run: python models/train_model.py")
+    app.run(host="127.0.0.1", port=5000, debug=True)
