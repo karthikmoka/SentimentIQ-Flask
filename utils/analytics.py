@@ -14,7 +14,17 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 sys.path.insert(0, _ROOT)
 
-from config.config import ANALYTICS_PATH, LABEL_NAMES
+from config.config import LABEL_NAMES
+
+# On Vercel/read-only fs, store analytics in /tmp
+import tempfile as _tempfile
+_DEFAULT_ANALYTICS = os.path.join(_tempfile.gettempdir(), "siq_analytics.json")
+ANALYTICS_PATH = os.environ.get("ANALYTICS_OVERRIDE", ANALYTICS_PATH) if 'ANALYTICS_PATH' in dir() else _DEFAULT_ANALYTICS
+try:
+    from config.config import ANALYTICS_PATH as _AP
+    ANALYTICS_PATH = os.environ.get("ANALYTICS_OVERRIDE", _AP)
+except Exception:
+    pass
 
 log      = logging.getLogger(__name__)
 _lock    = threading.Lock()

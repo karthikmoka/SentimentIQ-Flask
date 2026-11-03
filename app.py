@@ -24,10 +24,25 @@ from flask import (
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 
+# ── On Vercel / read-only filesystems use /tmp ────────────────────────────────
+_IS_READONLY_FS = not os.access(_ROOT, os.W_OK)
+if _IS_READONLY_FS:
+    import tempfile
+    _TMP = tempfile.gettempdir()
+    os.environ.setdefault("UPLOAD_FOLDER_OVERRIDE",  os.path.join(_TMP, "siq_uploads"))
+    os.environ.setdefault("RESULTS_FOLDER_OVERRIDE", os.path.join(_TMP, "siq_results"))
+    os.environ.setdefault("ANALYTICS_OVERRIDE",      os.path.join(_TMP, "siq_analytics.json"))
+
 from config.config  import (
-    SECRET_KEY, DEBUG, UPLOAD_FOLDER, RESULTS_FOLDER,
-    MAX_UPLOAD_MB, ALLOWED_EXTENSIONS, LABEL_NAMES,
+    SECRET_KEY, DEBUG, LABEL_NAMES,
 )
+from config.config import MAX_UPLOAD_MB, ALLOWED_EXTENSIONS
+
+# Override paths if on read-only filesystem (e.g. Vercel)
+import tempfile
+_TMP = tempfile.gettempdir()
+UPLOAD_FOLDER  = os.environ.get("UPLOAD_FOLDER_OVERRIDE",  os.path.join(_ROOT, "uploads"))
+RESULTS_FOLDER = os.environ.get("RESULTS_FOLDER_OVERRIDE", os.path.join(_ROOT, "results"))
 from models.predict      import predict, predict_batch
 from utils.evaluation    import load_evaluation, format_metrics
 from utils.analytics     import record_prediction, record_batch, get_analytics

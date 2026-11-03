@@ -18,10 +18,19 @@ Negation words preserved: not, no, never, neither, nor, nobody,
 """
 
 import re
+import os
 import string
 import logging
 
 import nltk
+# On Vercel / read-only filesystems, write NLTK data to /tmp
+_NLTK_DATA_DIR = os.environ.get("NLTK_DATA", os.path.join(os.path.expanduser("~"), "nltk_data"))
+if not os.access(os.path.expanduser("~"), os.W_OK):
+    _NLTK_DATA_DIR = "/tmp/nltk_data"
+os.makedirs(_NLTK_DATA_DIR, exist_ok=True)
+if _NLTK_DATA_DIR not in nltk.data.path:
+    nltk.data.path.insert(0, _NLTK_DATA_DIR)
+
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -41,7 +50,7 @@ def _ensure_nltk():
             nltk.data.find(path)
         except LookupError:
             try:
-                nltk.download(pkg, quiet=True)
+                nltk.download(pkg, quiet=True, download_dir=_NLTK_DATA_DIR)
             except Exception as exc:
                 logger.warning("Could not download NLTK resource %s: %s", pkg, exc)
 
