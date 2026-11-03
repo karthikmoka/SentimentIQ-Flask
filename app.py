@@ -1,7 +1,7 @@
 """
 SentimentIQ Flask — Main Application
-Run locally: python app.py  →  http://127.0.0.1:5000
-Vercel:      entry point is api/index.py which imports `app` from here
+Run locally : python app.py  →  http://127.0.0.1:5000
+Render/Cloud: gunicorn app:app
 """
 
 import os
@@ -15,8 +15,7 @@ from datetime import datetime
 import pandas as pd
 from flask import (
     Flask, render_template, request, jsonify,
-    send_from_directory, flash, redirect, url_for,
-    abort,
+    send_from_directory, abort,
 )
 
 # ── Project root on sys.path ──────────────────────────────────────────────────
@@ -24,13 +23,10 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 
 from config.config import (
-    SECRET_KEY, DEBUG, MAX_UPLOAD_MB, ALLOWED_EXTENSIONS, LABEL_NAMES,
+    SECRET_KEY, DEBUG, MAX_UPLOAD_MB,
+    ALLOWED_EXTENSIONS, LABEL_NAMES,
+    UPLOAD_FOLDER, RESULTS_FOLDER,
 )
-
-# ── Writable paths (use /tmp overrides on Vercel) ─────────────────────────────
-UPLOAD_FOLDER  = os.environ.get("UPLOAD_FOLDER_OVERRIDE",  os.path.join(_ROOT, "uploads"))
-RESULTS_FOLDER = os.environ.get("RESULTS_FOLDER_OVERRIDE", os.path.join(_ROOT, "results"))
-
 from models.predict   import predict, predict_batch
 from utils.evaluation import load_evaluation, format_metrics
 from utils.analytics  import record_prediction, record_batch, get_analytics
@@ -40,12 +36,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
-app = Flask(__name__, template_folder=os.path.join(_ROOT, "templates"),
-            static_folder=os.path.join(_ROOT, "static"))
-app.secret_key                    = SECRET_KEY
-app.config["MAX_CONTENT_LENGTH"]  = MAX_UPLOAD_MB * 1024 * 1024
-app.config["UPLOAD_FOLDER"]       = UPLOAD_FOLDER
-app.config["RESULTS_FOLDER"]      = RESULTS_FOLDER
+app = Flask(__name__)
+app.secret_key                   = SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
 os.makedirs(UPLOAD_FOLDER,  exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
@@ -64,9 +57,9 @@ def _model_ready() -> bool:
 
 @app.route("/")
 def index():
-    analytics = get_analytics()
-    model_ready = _model_ready()
-    return render_template("index.html", analytics=analytics, model_ready=model_ready)
+    return render_template("index.html",
+                           analytics=get_analytics(),
+                           model_ready=_model_ready())
 
 @app.route("/analyze")
 def analyze():
@@ -116,7 +109,8 @@ def api_batch_predict():
     except Exception as exc:
         return jsonify({"error": f"Could not parse CSV: {exc}"}), 400
     if text_col not in df.columns:
-        return jsonify({"error": f"Column '{text_col}' not found.", "columns": df.columns.tolist()}), 400
+        return jsonify({"error": f"Column '{text_col}' not found.",
+                        "columns": df.columns.tolist()}), 400
     texts = df[text_col].fillna("").astype(str).tolist()
     if not texts:
         return jsonify({"error": "CSV has no rows."}), 400
@@ -132,22 +126,21 @@ def api_batch_predict():
     df["neu_prob"]            = [r["probabilities"].get("Neutral",  0) for r in results]
     df["pos_prob"]            = [r["probabilities"].get("Positive", 0) for r in results]
     out_name = f"results_{uuid.uuid4().hex[:8]}.csv"
-    out_path = os.path.join(RESULTS_FOLDER, out_name)
-    df.to_csv(out_path, index=False)
+    df.to_csv(os.path.join(RESULTS_FOLDER, out_name), index=False)
     counts  = df["predicted_sentiment"].value_counts().to_dict()
-    preview = [
-        {"text": row[text_col][:120], "sentiment": row["predicted_sentiment"],
-         "confidence": f'{row["confidence"]*100:.1f}%'}
-        for _, row in df.head(50).iterrows()
-    ]
-    return jsonify({"total": len(results), "counts": counts, "preview": preview, "download_file": out_name})
+    preview = [{"text": row[text_col][:120],
+                "sentiment": row["predicted_sentiment"],
+                "confidence": f'{row["confidence"]*100:.1f}%'}
+               for _, row in df.head(50).iterrows()]
+    return jsonify({"total": len(results), "counts": counts,
+                    "preview": preview, "download_file": out_name})
 
 # ── API: analytics ─────────────────────────────────────────────────────────────
 @app.route("/analytics")
 def api_analytics():
     return jsonify(get_analytics())
 
-# ── Download result CSV ────────────────────────────────────────────────────────
+# ── Download CSV ───────────────────────────────────────────────────────────────
 @app.route("/download-results/<filename>")
 def download_results(filename):
     safe = os.path.basename(filename)
@@ -159,7 +152,7 @@ def download_results(filename):
 # ── Error handlers ─────────────────────────────────────────────────────────────
 @app.errorhandler(413)
 def too_large(e):
-    return jsonify({"error": f"File too large. Maximum {MAX_UPLOAD_MB} MB."}), 413
+    return jsonify({"error": f"File too large. Max {MAX_UPLOAD_MB} MB."}), 413
 
 @app.errorhandler(404)
 def not_found(e):
@@ -169,8 +162,8 @@ def not_found(e):
 def server_error(e):
     return jsonify({"error": "Internal server error."}), 500
 
-# ── Local dev entry point ──────────────────────────────────────────────────────
+# ── Local dev ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     if not _model_ready():
-        log.warning("No trained model found. Run: python models/train_model.py")
+        log.warning("No model found. Run: python models/train_model.py")
     app.run(host="127.0.0.1", port=5000, debug=True)
